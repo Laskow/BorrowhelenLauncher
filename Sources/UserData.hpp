@@ -1,0 +1,271 @@
+//======================================================================================================================
+// Project: DoomRunner
+//----------------------------------------------------------------------------------------------------------------------
+// Author:      Jan Broz (Youda008)
+// Description: the data user enters into the launcher
+//======================================================================================================================
+
+#ifndef USER_DATA_INCLUDED
+#define USER_DATA_INCLUDED
+
+
+#include "Common.hpp"
+
+#include "Widgets/ListModel.hpp"     // ReadOnlyListModelItem, EditableListModelItem
+#include "Utils/JsonUtils.hpp"       // enumName, enumSize
+#include "Utils/FileSystemUtils.hpp" // PathStyle
+#include "EngineTraits.hpp"          // EngineFamily
+#include "Themes.hpp"                // Theme
+
+#include <QString>
+#include <QFileInfo>
+#include <QRect>
+
+
+//======================================================================================================================
+//  OS-specific defaults
+
+#ifdef _WIN32
+	constexpr PathStyle defaultPathStyle = PathStyle::Relative;
+	constexpr bool showEngineOutputByDefault = false;
+#else
+	constexpr PathStyle defaultPathStyle = PathStyle::Absolute;
+	constexpr bool showEngineOutputByDefault = true;
+#endif
+
+
+//======================================================================================================================
+//  data definition
+
+// Constructors from QFileInfo are used in automatic list updates for initializing an element from a file-system entry.
+// getID methods are used in automatic list updates for ensuring the same items remain selected.
+
+//----------------------------------------------------------------------------------------------------------------------
+//  files
+
+/// a ported Doom engine (source port) located somewhere on the disc
+struct Engine : public EditableListModelItem
+{
+	QString name;        ///< user defined engine name
+	QString path;        ///< path to the engine's executable
+	QString configDir;   ///< directory with engine's .ini files
+	EngineFamily family = EngineFamily::ZDoom;  ///< automatically detected, but user-selectable engine family
+
+	Engine() {}
+	Engine( const QFileInfo & file )
+		: name( file.fileName() ), path( file.filePath() ), configDir( file.dir().path() ) {}
+
+	// requirements of EditableListModel
+	const QString & getFilePath() const { return path; }
+
+	QString getID() const { return path; }
+};
+
+struct IWAD : public EditableListModelItem
+{
+	QString name;   ///< initially set to file name, but user can edit it by double-clicking on it in SetupDialog
+	QString path;   ///< path to the IWAD file
+
+	IWAD() {}
+	IWAD( const QFileInfo & file ) : name( file.fileName() ), path( file.filePath() ) {}
+
+	// requirements of EditableListModel
+	const QString & getEditString() const { return name; }
+	void setEditString( const QString & str ) { name = str; }
+	const QString & getFilePath() const { return path; }
+
+	QString getID() const { return path; }
+};
+
+struct Mod : public EditableListModelItem
+{
+	QString path;           ///< path to the mod file
+	QString fileName;       ///< cached last part of path, beware of inconsistencies
+	bool checked = false;   ///< whether this mod is selected to be loaded
+
+	// requirements of EditableListModel
+	const QString & getEditString() const { return fileName; }
+	void setEditString( const QString & str ) { fileName = str; }
+	bool isChecked() const { return checked; }
+	void setChecked( bool checked ) { this->checked = checked; }
+	const QString & getFilePath() const { return path; }
+
+	Mod() {}
+	Mod( const QFileInfo & file, bool checked = true )
+		: path( file.filePath() ), fileName( file.fileName() ), checked( checked ) {}
+};
+
+//----------------------------------------------------------------------------------------------------------------------
+//  gameplay/compatibility options
+
+enum LaunchMode
+{
+	Default,
+	LaunchMap,
+	LoadSave,
+	RecordDemo,
+	ReplayDemo,
+};
+template<> inline const char * enumName< LaunchMode >() { return "LaunchMode"; }
+template<> inline uint enumSize< LaunchMode >() { return uint( LaunchMode::ReplayDemo ) + 1; }
+
+enum Skill
+{
+    VeryEasy = 1,
+    Easy = 2,
+    Normal = 3,
+    Hard = 4,
+    VeryHard = 5,
+	Custom
+};
+template<> inline const char * enumName< Skill >() { return "Skill"; }
+template<> inline uint enumSize< Skill >() { return uint( Skill::Custom ) + 1; }
+
+
+struct LaunchOptions
+{
+	LaunchMode mode = Default;
+	QString mapName;
+	QString saveFile;
+	QString mapName_demo;
+	QString demoFile_record;
+	QString demoFile_replay;
+};
+
+
+struct GameplayDetails
+{
+    //int32_t dmflags1 = 0;
+    //int32_t dmflags2 = 0;
+};
+
+struct GameplayOptions : public GameplayDetails  // inherited instead of included to avoid long identifiers
+{
+    int skillIdx = VeryEasy;  ///< value in the skill combo-box (only from TooYoungToDie=1 to Custom=6)
+	int skillNum = skillIdx;  ///< value in the skill spin-box (when skillIdx == Custom, it can be any number)
+	bool noMonsters = false;
+
+	void assign( const GameplayDetails & other ) { static_cast< GameplayDetails & >( *this ) = other; }
+};
+
+
+//----------------------------------------------------------------------------------------------------------------------
+//  other options
+
+struct AlternativePaths
+{
+	QString saveDir;
+	QString screenshotDir;
+};
+
+struct VideoOptions
+{
+	int monitorIdx = 0;
+	uint resolutionX = 0;
+	uint resolutionY = 0;
+	bool showFPS = false;
+};
+
+struct AudioOptions
+{
+	bool noSound = false;
+	bool noSFX = false;
+	bool noMusic = false;
+};
+
+struct GlobalOptions
+{
+	bool usePresetNameAsDir = false;
+	QString cmdArgs;
+};
+
+//----------------------------------------------------------------------------------------------------------------------
+//  preset
+
+struct Preset : public EditableListModelItem
+{
+	QString name;
+
+	QString selectedEnginePath;   // we store the engine by path, so that it does't break when user renames them or reorders them
+	QString selectedConfig;   // we store the config by name instead of index, so that it does't break when user reorders them
+	QString selectedIWAD;   // we store the IWAD by path instead of index, so that it doesn't break when user reorders them
+	QList< QString > selectedMapPacks;
+	QList< Mod > mods;   // this list needs to be kept in sync with mod list widget
+
+    LaunchOptions launchOpts;
+    GameplayOptions gameOpts;
+	VideoOptions videoOpts;
+	AudioOptions audioOpts;
+	AlternativePaths altPaths;
+
+	QString cmdArgs;
+
+	// requirements of EditableListModel
+	const QString & getEditString() const { return name; }
+	void setEditString( const QString & str ) { name = str; }
+
+	Preset() {}
+	Preset( const QString & name ) : name( name ) {}
+	Preset( const QFileInfo & ) {}  // dummy, it's required by the EditableListModel template, but isn't actually used
+};
+
+//----------------------------------------------------------------------------------------------------------------------
+//  global settings
+
+struct IwadSettings
+{
+	QString dir;                  ///< directory to update IWAD list from (value returned by SetupDialog)
+	bool updateFromDir = false;   ///< whether the IWAD list should be periodically updated from a directory
+	bool searchSubdirs = false;   ///< whether to search for IWADs recursivelly in subdirectories
+};
+
+struct MapSettings
+{
+	QString dir;   ///< directory with map packs to automatically load the list from
+};
+
+struct ModSettings
+{
+	QString dir;   ///< directory with mods, starting dir for "Add mod" dialog
+};
+
+enum OptionsStorage
+{
+	DontStore,       ///< Everytime the launcher is closed and re-opened, the options are reset to defaults.
+	StoreGlobally,   ///< When the launcher is closed, current state of the options is saved. When it's re-opened, the options are loaded from the last saved state.
+	StoreToPreset,   ///< Options are stored to the currently selected preset. When a preset is selected, the options are loaded from the preset.
+};
+template<> inline const char * enumName< OptionsStorage >() { return "OptionsStorage"; }
+template<> inline uint enumSize< OptionsStorage >() { return uint( OptionsStorage::StoreToPreset ) + 1; }
+
+struct StorageSettings
+{
+	OptionsStorage launchOptsStorage = StoreGlobally;  ///< controls both LaunchOptions and MultiplayerOptions, since they are heavily tied together
+    OptionsStorage gameOptsStorage = StoreGlobally;
+	OptionsStorage videoOptsStorage = StoreGlobally;
+	OptionsStorage audioOptsStorage = StoreGlobally;
+};
+
+/// Additional launcher settings
+struct LauncherSettings : public StorageSettings  // inherited instead of included to avoid long identifiers
+{
+	PathStyle pathStyle = defaultPathStyle;
+	bool closeOnLaunch = false;
+	bool showEngineOutput = showEngineOutputByDefault;
+	ColorScheme colorScheme = ColorScheme::SystemDefault;
+	QString appStyle;
+
+	void assign( const StorageSettings & other ) { static_cast< StorageSettings & >( *this ) = other; }
+};
+
+struct WindowGeometry
+{
+	int width = 0;
+	int height = 0;
+
+	WindowGeometry() {}
+	WindowGeometry( const QRect & rect ) : width( rect.width() ), height( rect.height() ) {}
+};
+
+
+#endif // USER_DATA_INCLUDED
